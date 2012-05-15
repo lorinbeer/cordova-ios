@@ -22,6 +22,8 @@
 
 @implementation CDVAccelerometer
 
+@synthesize accelCallbacks, watchCallbacks;
+
 // defaults to 100 msec
 #define kAccelerometerInterval      100 
 // max rate of 40 msec
@@ -36,12 +38,12 @@
     self = [super init];
     if (self)
     {
-        timeout = 30000;
         x = 0;
         y = 0;
         z = 0;
         timestamp = 0;
-        lastAccessTime = 0;
+        accelCallbacks = nil;
+        watchCallbacks = nil;
     }
     return self;
 }
@@ -57,13 +59,18 @@
 	UIAccelerometer* pAccel = [UIAccelerometer sharedAccelerometer];
 	// accelerometer expects fractional seconds, but we have msecs
 	pAccel.updateInterval = desiredFrequency_num / 1000;
+    if (!accelCallbacks) {
+        accelCallbacks = [NSMutableArray arrayWithCapacity:1];            
+    }
+    if (!watchCallbacks) {
+        watchCallbacks = [NSMutableDictionary dictionaryWithCapacity:1];
+    }
 	if(!_bIsRunning)
 	{
 		pAccel.delegate = self;
 		_bIsRunning = YES;
 	}
 }
-
 
 - (void)stop
 {
@@ -77,52 +84,54 @@
  */
 - (void)getAcceleration:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options
 {
-    CDVPluginResult* result = nil;
-    NSString* jsString = nil;
 	NSString* callbackId = [arguments objectAtIndex:0];
     
     if(!_bIsRunning)
     {
+        CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_NO_RESULT];
+        [result setKeepCallback:[NSNumber numberWithBool:YES]];
+        if (!accelCallbacks) {
+            accelCallbacks = [NSMutableArray arrayWithCapacity:1];            
+        }
+        [accelCallbacks addObject:callbackId];
+        [self start];
+        [self writeJavascript:[result toSuccessCallbackString:callbackId]];
+    } else {
+        [self returnAccelInfo:callbackId];
+    }
+}
+
+- (void) addWatch:(NSMutableArray *)arguments withDict:(NSMutableDictionary *)options
+{
+    NSString* callbackId = [arguments objectAtIndex:0];
+    NSString* timerId = [arguments objectAtIndex:1];
+    
+    if (!watchCallbacks) {
+        watchCallbacks = [NSMutableDictionary dictionaryWithCapacity:1];
+    }
+    
+    // add the callbackId into the dictionary so we can call back whenever get data
+    [watchCallbacks setObject:callbackId forKey:timerId];
+    
+    if (!_bIsRunning) {
         [self start];
     }
-    // set last access time to right now
-    lastAccessTime = ([[NSDate date] timeIntervalSince1970] * 1000);
-    
-    // Create an acceleration object
-    NSMutableDictionary *accelProps = [NSMutableDictionary dictionaryWithCapacity:4];
-    [accelProps setValue:[NSNumber numberWithDouble:x*kGravitionalConstant] forKey:@"x"];
-    [accelProps setValue:[NSNumber numberWithDouble:y*kGravitionalConstant] forKey:@"y"];
-    [accelProps setValue:[NSNumber numberWithDouble:z*kGravitionalConstant] forKey:@"z"];
-    [accelProps setValue:[NSNumber numberWithDouble:timestamp] forKey:@"timestamp"];
-    
-    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:accelProps];
-    jsString = [result toSuccessCallbackString:callbackId];
+    CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_NO_RESULT];
+    [result setKeepCallback:[NSNumber numberWithBool:YES]];
+    [self writeJavascript:[result toSuccessCallbackString:callbackId]];
+}
+- (void) clearWatch:(NSMutableArray *)arguments withDict:(NSMutableDictionary *)options
+{
+    NSString* callbackId = [arguments objectAtIndex:0];
+    NSString* timerId = [arguments objectAtIndex:1];
+    if (watchCallbacks && [watchCallbacks objectForKey:timerId]) {
+        [watchCallbacks removeObjectForKey:timerId];
+    }
+    CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+    NSString* jsString = [result toSuccessCallbackString:callbackId];
     [self writeJavascript:jsString];
 }
 
-- (void)getTimeout:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options
-{
-    CDVPluginResult* result = nil;
-    NSString* jsString = nil;
-	NSString* callbackId = [arguments objectAtIndex:0];
-    
-    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDouble:timeout];
-    jsString = [result toSuccessCallbackString:callbackId];
-    [self writeJavascript:jsString];
-}
-
-- (void)setTimeout:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options
-{
-    CDVPluginResult* result = nil;
-    NSString* jsString = nil;
-	NSString* callbackId = [arguments objectAtIndex:0];
-    float newTimeout = [[arguments objectAtIndex:1] floatValue];
-    timeout = newTimeout;
-    
-    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
-    jsString = [result toSuccessCallbackString:callbackId];
-    [self writeJavascript:jsString];
-}
 /**
  * Picks up accel updates from device and stores them in this class
  */
@@ -134,12 +143,38 @@
         y = acceleration.y;
         z = acceleration.z;
         timestamp = ([[NSDate date] timeIntervalSince1970] * 1000);
-        
-        // read frequency and compare to timeout so we can see if we should turn off accel listening
-        if ((timestamp - lastAccessTime) > timeout) {
-			[self stop];
-		}		
+        if (self.accelCallbacks.count > 0) {
+            for (NSString *callbackId in self.accelCallbacks) {
+                [self returnAccelInfo:callbackId];
+            }
+            [self.accelCallbacks removeAllObjects];
+        }
+        if (self.watchCallbacks.count > 0) {
+            for (NSString *timerId in self.watchCallbacks) {
+                [self returnAccelInfo:[self.watchCallbacks objectForKey: timerId ]];
+            }
+        } else {
+            // No callbacks waiting on us anymore, turn off listening.
+            [self stop];
+        }
 	}
+}
+
+- (void)returnAccelInfo: (NSString*) callbackId
+{
+    CDVPluginResult* result = nil;
+    NSString* jsString = nil;
+
+    // Create an acceleration object
+    NSMutableDictionary *accelProps = [NSMutableDictionary dictionaryWithCapacity:4];
+    [accelProps setValue:[NSNumber numberWithDouble:x*kGravitionalConstant] forKey:@"x"];
+    [accelProps setValue:[NSNumber numberWithDouble:y*kGravitionalConstant] forKey:@"y"];
+    [accelProps setValue:[NSNumber numberWithDouble:z*kGravitionalConstant] forKey:@"z"];
+    [accelProps setValue:[NSNumber numberWithDouble:timestamp] forKey:@"timestamp"];
+    
+    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:accelProps];
+    jsString = [result toSuccessCallbackString:callbackId];
+    [self writeJavascript:jsString]; 
 }
 
 // TODO: Consider using filtering to isolate instantaneous data vs. gravity data -jm
@@ -159,7 +194,4 @@
  
 
  */
-
-
-
 @end
