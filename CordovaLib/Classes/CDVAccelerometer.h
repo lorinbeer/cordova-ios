@@ -24,15 +24,13 @@
 
 @interface CDVAccelerometer : CDVPlugin<UIAccelerometerDelegate> 
 {
-	bool _bIsRunning;
 	double x;
     double y;
     double z;
     NSTimeInterval timestamp;
-    NSMutableArray  *accelCallbacks;
-    NSMutableDictionary  *watchCallbacks;
 }
 
+@property (readonly, assign) BOOL isRunning;
 @property (nonatomic, retain) NSMutableArray* accelCallbacks;
 @property (nonatomic, retain) NSMutableDictionary* watchCallbacks;
 
