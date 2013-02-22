@@ -35,10 +35,18 @@ static NSArray* org_apache_cordova_CommandStatusMsgs;
 
 id messageFromArrayBuffer(NSData* data)
 {
-    return [NSDictionary dictionaryWithObjectsAndKeys:
-        @"ArrayBuffer", @"CDVType",
-        [data base64EncodedString], @"data",
-        nil];
+    return @{
+        @"CDVType" : @"ArrayBuffer",
+        @"data" :[data base64EncodedString]
+    };
+}
+
+id massageMessage(id message)
+{
+    if ([message isKindOfClass:[NSData class]]) {
+        return messageFromArrayBuffer(message);
+    }
+    return message;
 }
 
 id messageFromMultipart(NSArray* theMessages)
@@ -46,17 +54,13 @@ id messageFromMultipart(NSArray* theMessages)
     NSMutableArray* messages = [NSMutableArray arrayWithArray:theMessages];
 
     for (NSUInteger i = 0; i < messages.count; ++i) {
-        id message = [messages objectAtIndex:i];
-
-        if ([message isKindOfClass:[NSData class]]) {
-            [messages replaceObjectAtIndex:i withObject:messageFromArrayBuffer(message)];
-        }
+        [messages replaceObjectAtIndex:i withObject:massageMessage([messages objectAtIndex:i])];
     }
 
-    return [NSDictionary dictionaryWithObjectsAndKeys:
-        @"MultiPart", @"CDVType",
-        messages, @"messages",
-        nil];
+    return @{
+        @"CDVType" : @"MultiPart",
+        @"messages" : messages
+    };
 }
 
 + (void)initialize
@@ -137,7 +141,7 @@ id messageFromMultipart(NSArray* theMessages)
 
 + (CDVPluginResult*)resultWithStatus:(CDVCommandStatus)statusOrdinal messageToErrorObject:(int)errorCode
 {
-    NSDictionary* errDict = [NSDictionary dictionaryWithObject:[NSNumber numberWithInt:errorCode] forKey:@"code"];
+    NSDictionary* errDict = @{@"code": [NSNumber numberWithInt:errorCode]};
 
     return [[self alloc] initWithStatus:statusOrdinal message:errDict];
 }
