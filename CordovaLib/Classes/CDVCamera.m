@@ -305,11 +305,33 @@ static NSSet* org_apache_cordova_validArrowDirections;
                     filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, cameraPicker.encodingType == EncodingTypePNG ? @"png":@"jpg"];
                 } while ([fileMgr fileExistsAtPath:filePath]);
 
+                /**
+                 * CB-2185 Metadata Access Workaround Hack
+                 */
+                NSError * jsonSerialError;
+                NSString * metaDataString = nil;
+                NSData * imgMetaData = [NSJSONSerialization dataWithJSONObject: [info objectForKey:@"UIImagePickerControllerMediaMetadata"]
+                                                                   options: NSJSONWritingPrettyPrinted
+                                                                     error: &jsonSerialError];
+                if (!imgMetaData) {
+                    NSLog(@"Image Meta Data Access Error: %@", jsonSerialError);
+                } else {
+                    metaDataString = [[NSString alloc] initWithData: imgMetaData
+                                                                 encoding: NSUTF8StringEncoding];
+                }
+
+                
                 // save file
                 if (![data writeToFile:filePath options:NSAtomicWrite error:&err]) {
                     result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[err localizedDescription]];
                 } else {
+                    if (metaDataString) {
+                        NSArray * retArray = [[NSArray alloc] initWithObjects:[[NSURL fileURLWithPath:filePath] absoluteString], metaDataString, nil];
+                        result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
+                                                    messageAsArray: retArray];
+                    } else {
                     result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:[[NSURL fileURLWithPath:filePath] absoluteString]];
+                    }
                 }
             } else {
                 result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:[data base64EncodedString]];
